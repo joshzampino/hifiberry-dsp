@@ -168,6 +168,10 @@ class SigmaTCPHandler(BaseRequestHandler):
                             "Expect %s bytes from header information (read), but have only %s",
                             command_length, len(data))
                         continue
+                    
+                    if command_length < len(data):
+                        buffer = data[command_length:]
+                        data = data[0:command_length]
 
                     result = self.handle_read(data)
 
@@ -384,17 +388,17 @@ class SigmaTCPHandler(BaseRequestHandler):
 
     @staticmethod
     def handle_read(data):
+        logging.debug(f"read_req: {data.hex()}")
+
         addr = int.from_bytes(data[10:12], byteorder='big')
         length = int.from_bytes(data[6:10], byteorder='big')
-        
-        logging.debug("Handle read %s/%s",addr,length)
 
         spi_response = SigmaTCPHandler.spi.read(addr, length)
-        logging.debug("read {} bytes from {}".format(length, addr))
 
         res = SigmaTCPHandler._response_packet(COMMAND_READRESPONSE,
                                                addr,
                                                len(spi_response)) + spi_response
+        logging.debug(f"read_rsp: {res.hex()}")    
         return res
 
     @staticmethod
@@ -630,9 +634,17 @@ class SigmaTCPHandler(BaseRequestHandler):
 
     @staticmethod
     def _response_packet(command, addr, data_length):
+        
         packet = bytearray(HEADER_SIZE)
         packet[0] = command
-        packet[4] = 14  # header length
+        
+        total_len = HEADER_SIZE + data_length
+        packet[1] = total_len & 0xff
+        packet[2] = (total_len >> 8) & 0xff
+        packet[3] = (total_len >> 16) & 0xff
+        packet[4] = (total_len >> 24) & 0xff
+        #packet[4] = 14  # header length
+
         packet[5] = 1  # chip address
 
         packet[9] = data_length & 0xff
